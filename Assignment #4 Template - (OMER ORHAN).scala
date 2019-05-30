@@ -109,12 +109,11 @@ joinedbusiness.filter($"score".isNotNull).orderBy($"score".desc).select("busines
 
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
-//val joinedBusiness = Violations_plusDf.join(Inspection_PlusDf, Violations_plusDf("business_id_V")=== //Inspection_PlusDf("business_id_I")).filter($"score"===100).filter($"risk_category"==="High //Risk").select("business_id_V","risk_category","date","description").show
 
 Violations_plusDf.createOrReplaceTempView("Violations")
 Inspection_PlusDf.createOrReplaceTempView("Inspection")
 
-val sqlDF = spark.sql("SELECT business_id_I, risk_category, to_date(date,'yyyymmdd') as date, description FROM Inspection JOIN Violations ON business_id_I = business_id_V where score=100 and risk_category='High Risk'")
+val sqlDF = spark.sql("SELECT business_id_I, risk_category,date_format( to_date(date,'yyyymmdd'),'MM/DD/YYYY') as date, description FROM Inspection JOIN Violations ON business_id_I = business_id_V where score=100 and risk_category='High Risk'")
 sqlDF.show()
 
 
@@ -128,7 +127,11 @@ sqlDF.show()
 
 // COMMAND ----------
 
-val joinedbusiness = Business_plusDf.join(Inspection_PlusDf, Business_plusDf("business_id_B")=== Inspection_PlusDf("business_id_I")).groupBy("owner_zip").mean().select("owner_zip","avg(score)").show
+Business_plusDf.createOrReplaceTempView("Business")
+Inspection_PlusDf.createOrReplaceTempView("Inspection")
+
+val sqlDF = spark.sql("SELECT owner_zip, round(avg(score),2) as avg_score from Business JOIN Inspection on business_id_B = business_id_I group by owner_zip order by avg_score desc")
+sqlDF.show
 
 // COMMAND ----------
 
@@ -151,6 +154,30 @@ val joinedbusiness = Business_plusDf.join(Inspection_PlusDf, Business_plusDf("bu
 
 // COMMAND ----------
 
+Business_plusDf.createOrReplaceTempView("Business")
+Violations_plusDf.createOrReplaceTempView("Violations")
+
+def detechViolations(x: String) = if (x == "High risk vermin infestation" 
+                                      || x == "Moderate risk vermin infestation"
+                                     || x == "Sewage or wastewater contamination"
+                                     || x == "Improper food labeling or menu misrepresentation"
+                                     || x == "Contaminated or adulterated food"
+                                      || x == "Reservice of previously served foods"
+                                       || x == "Expected output: zip code, percentage"
+                                     ) "1" else "0"
+
+spark.udf.register("detechViolations",detechViolations(_:String))
+
+//get extreme_count with UDF
+//val sqlDF3 = spark.sql("select owner_zip as extreme_owner_zip, count(*) as extreme_count from Business JOIN Violations on business_id_V=business_id_B where detechViolations(description)='1' group by owner_zip")
+
+//get total_violation_count
+//val sqlDF2 = spark.sql("select owner_zip as general_owner_zip, count(*) as total_violation_count from Business group by owner_zip")
+
+val sqlDF4 = spark.sql("select general_owner_zip,total_violation_count,extreme_count,round((extreme_count/total_violation_count),2) as proportion  from (select owner_zip as extreme_owner_zip, count(*) as extreme_count from Business JOIN Violations on business_id_V=business_id_B where detechViolations(description)='1' group by owner_zip) JOIN (select owner_zip as general_owner_zip, count(*) as total_violation_count from Business group by owner_zip) on general_owner_zip=extreme_owner_zip")
+
+sqlDF4.show
+
 
 
 // COMMAND ----------
@@ -162,6 +189,36 @@ val joinedbusiness = Business_plusDf.join(Inspection_PlusDf, Business_plusDf("bu
 // COMMAND ----------
 
 // MAGIC %md (Yes/No) and why
+// MAGIC Answer;
+
+// COMMAND ----------
+
+// (Yes/No) and why
+//Answer; YES
+
+//SF restaurants are clean. Because;
+//1-When I look the inspection table, most of businesses got over 90 scores. That is very good.
+//+-----+-----+
+//|score|count|
+//+-----+-----+
+//|  100| 3705|
+//|   98| 1534|
+//|   96| 2365|
+//|   94| 1751|
+//|   93|  374|
+//|   92| 1482|
+//|   91|  411|
+//|   90| 1241|
+
+//2- High Risk Count is pretty low than Moderate and Low Risk. That is an evidence showing SF restaurants are clean.
+//risk_category|count|
+//+-------------+-----+
+//|          N/A|   31|
+//|Moderate Risk|15712|
+//|     Low Risk|24717|
+//|    High Risk| 6446|
+
+
 
 // COMMAND ----------
 
